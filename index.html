@@ -184,7 +184,7 @@ document.head.append(applicantCountStyle);
 function registrationState() {
   if (!registrationConfirmed || !state.settings) return 'loading';
   const settings = state.settings;
-  if (String(settings.is_active).toUpperCase() !== 'TRUE') return 'disabled';
+  if (String(settings.is_active).trim().toUpperCase() !== 'TRUE') return 'disabled';
   const start = bangkokDate(settings.open_date).getTime();
   const end = bangkokDate(settings.close_date).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return 'disabled';
@@ -545,8 +545,67 @@ function buildSparkles(){
  const button=$('effectsToggle');function display(){document.documentElement.classList.toggle('effects-off',!enabled);button.setAttribute('aria-pressed',String(enabled));button.textContent='✦ ดาวระยิบ: '+(enabled?'เปิด':'ปิด')};button.onclick=()=>{enabled=!enabled;display();try{localStorage.setItem('pprEffects',enabled?'on':'off')}catch{}};display();
  document.addEventListener('visibilitychange',()=>document.documentElement.classList.toggle('effects-paused',document.hidden));
 }
-function bangkokDate(value){const text=String(value||'');return new Date(/(Z|[+-]\d\d:\d\d)$/.test(text)?text:text+'+07:00')}
-function updateCountdown(){syncRegistrationAccess();const s=state.settings;if(!s)return;const start=bangkokDate(s.open_date).getTime(),end=bangkokDate(s.close_date).getTime(),now=Date.now(),active=String(s.is_active).toUpperCase()==='TRUE';let seconds=0,label='ปิดรับสมัครแล้ว';if(!Number.isFinite(start)||!Number.isFinite(end)){label='รอกำหนดวันรับสมัคร'}else if(!active){label='ขณะนี้ปิดระบบรับสมัคร'}else if(now<start){label='นับถอยหลังสู่วันเปิดรับสมัคร';seconds=Math.max(0,Math.floor((start-now)/1000))}else if(now<end){label='เหลือเวลาสมัครอีก';seconds=Math.max(0,Math.floor((end-now)/1000))}const parts=[Math.floor(seconds/86400),Math.floor(seconds/3600)%24,Math.floor(seconds/60)%60,seconds%60];['cdDays','cdHours','cdMinutes','cdSeconds'].forEach((id,i)=>{const value=String(parts[i]).padStart(2,'0');if($(id).textContent!==value)$(id).textContent=value});$('countdownLabel').textContent=label;document.querySelector('.countdown-strip').classList.toggle('is-urgent',active&&now>=start&&now<end&&end-now<86400000);const dateFormat={timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'};if(Number.isFinite(start)&&Number.isFinite(end))$('countdownDates').textContent=new Date(start).toLocaleString('th-TH',dateFormat)+' – '+new Date(end).toLocaleString('th-TH',dateFormat)+' (เวลาไทย)';}
+function bangkokDate(value) {
+  const text = String(value ?? '').trim();
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?)(Z|[+-]\d{2}:?\d{2})?)?$/i.exec(text);
+  if (!match) return new Date(NaN);
+
+  const [, date, time = '00:00', offset = '+07:00'] = match;
+  const calendarDate = new Date(date);
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== date) {
+    return new Date(NaN);
+  }
+  return new Date(date+'T'+time+offset);
+}
+
+const countdownDateFormat = new Intl.DateTimeFormat('th-TH', {
+  timeZone:'Asia/Bangkok', day:'numeric', month:'short', year:'numeric',
+  hour:'2-digit', minute:'2-digit'
+});
+
+function updateCountdown() {
+  const settings = state.settings;
+  if (!settings) return;
+
+  const start = bangkokDate(settings.open_date).getTime();
+  const end = bangkokDate(settings.close_date).getTime();
+  const now = Date.now();
+  const active = String(settings.is_active).trim().toUpperCase() === 'TRUE';
+  const validSchedule = Number.isFinite(start) && Number.isFinite(end) && start < end;
+  let seconds = 0;
+  let label = 'ปิดรับสมัครแล้ว';
+  if (!validSchedule) {
+    label = 'รอกำหนดวันรับสมัคร';
+  } else if (!active) {
+    label = 'ขณะนี้ปิดระบบรับสมัคร';
+  } else if (now < start) {
+    label = 'นับถอยหลังสู่วันเปิดรับสมัคร';
+    seconds = Math.ceil((start - now) / 1000);
+  } else if (now < end) {
+    label = 'เหลือเวลาสมัครอีก';
+    seconds = Math.ceil((end - now) / 1000);
+  }
+
+  const parts = {
+    cdDays: Math.floor(seconds / 86400),
+    cdHours: Math.floor(seconds / 3600) % 24,
+    cdMinutes: Math.floor(seconds / 60) % 60,
+    cdSeconds: seconds % 60
+  };
+  Object.entries(parts).forEach(([id, number]) => {
+    const value = String(number).padStart(2, '0');
+    if ($(id).textContent !== value) $(id).textContent = value;
+  });
+
+  $('countdownLabel').textContent = label;
+  $('countdownDates').textContent = validSchedule
+    ? countdownDateFormat.format(start)+' – '+countdownDateFormat.format(end)+' (เวลาไทย)'
+    : 'กรุณาตรวจสอบวันและเวลาเปิด–ปิดรับสมัคร';
+  document.querySelector('.countdown-strip').classList.toggle(
+    'is-urgent', validSchedule && active && now >= start && now < end && end - now < 86400000
+  );
+  syncRegistrationAccess();
+}
 
 function wireRegionSuggestions(root){if(!root)return;root.querySelectorAll('select[name="province"]').forEach(province=>{if(province.dataset.regionsWired)return;province.dataset.regionsWired='1';const fields=province.closest('.fields'),district=fields?.querySelector('select[name="district"]');if(!district)return;province.updateDistricts=(selected='')=>{const list=[...(regionSuggestions[province.value]||[])];if(selected&&province.value&&!list.includes(selected))list.unshift(selected);district.innerHTML='<option value="">'+(province.value?'เลือกอำเภอ':'กรุณาเลือกจังหวัดก่อน')+'</option>'+list.map(v=>'<option value="'+esc(v)+'" '+(v===selected?'selected':'')+'>'+esc(v)+'</option>').join('');district.disabled=province.disabled||!province.value};province.addEventListener('change',()=>province.updateDistricts(''));province.updateDistricts(district.dataset.initial||'');delete district.dataset.initial})}
 function setRegionValues(root,provinceValue,districtValue){const p=root.querySelector('select[name="province"]');if(!p)return;if(provinceValue&&![...p.options].some(o=>o.value===provinceValue))p.add(new Option(provinceValue,provinceValue));p.value=provinceValue||'';p.updateDistricts?.(districtValue||'')}
@@ -554,7 +613,7 @@ function initRegionSuggestions(){['students','teacherFields','editFields'].forEa
 function printReportMarkup(items,start=0){return '<table class="portrait-table"><thead><tr><th>ลำดับ</th><th>ผู้สมัคร / โรงเรียน / พื้นที่</th><th>ชั้น / โทรนักเรียน</th><th>ผู้ปกครอง / ครูผู้สมัครให้</th></tr></thead><tbody>'+items.map((u,i)=>'<tr><td class="print-number">'+(start+i+1)+'</td><td><strong class="print-name">'+esc(u.name)+'</strong><span class="print-school">'+esc(schoolLabel(u.school))+'</span><span>อำเภอ '+esc(u.district)+' • จังหวัด '+esc(u.province)+'</span></td><td><strong>'+esc(u.grade||'—')+'</strong><span class="print-phone">'+esc(u.phone||'—')+'</span></td><td><span class="print-role">'+(u.mode==='group'?'ครูผู้สมัครให้':'ผู้ปกครอง')+'</span><strong>'+esc(u.contactName||'—')+'</strong><span class="print-phone">'+esc(u.contactPhone||'—')+'</span></td></tr>').join('')+'</tbody></table>'}
 $('printPage').onclick=()=>{if(!state.items.length)return toast('ไม่มีรายชื่อสำหรับพิมพ์');$('portraitSummary').textContent='หน้า '+state.page+' • '+state.items.length+' คน • '+new Date().toLocaleString('th-TH',{timeZone:'Asia/Bangkok'})+(state.search?' • ค้นหา: '+state.search:'')+(state.filter?' • '+state.filter:'')+(state.schoolFilter?' • '+schoolLabel(state.schoolFilter):'')+(state.provinceFilter?' • จังหวัด '+state.provinceFilter:'')+(state.modeFilter?' • '+(state.modeFilter==='group'?'แบบกลุ่ม':'รายบุคคล'):'');$('portraitRows').innerHTML=printReportMarkup(state.items,(state.page-1)*30);document.body.classList.add('printing-roster');window.print()};window.addEventListener('afterprint',()=>document.body.classList.remove('printing-roster'));
 $('qr').onerror=()=>{$('qr').hidden=true;let message=$('qrError');if(!message){message=document.createElement('p');message.id='qrError';message.className='muted';$('qr').after(message)}message.textContent='โหลด QR ไม่สำเร็จ กรุณาใช้เลขบัญชีด้านบน';};$('qr').onload=()=>{if(safeUrl(state.settings?.qr_url))$('qr').hidden=false;$('qrError')?.remove()};
-try{const cached=JSON.parse(sessionStorage.getItem('pprPublicPreview')||'null');if(cached&&Date.now()-cached.savedAt<300000){const s=cached.settings,now=Date.now();s.system_open_now=String(s.is_active).toUpperCase()==='TRUE'&&now>=bangkokDate(s.open_date).getTime()&&now<=bangkokDate(s.close_date).getTime();applySettings(s,false)}}catch{}
+try{const cached=JSON.parse(sessionStorage.getItem('pprPublicPreview')||'null');if(cached&&Date.now()-cached.savedAt<300000){const s=cached.settings,now=Date.now();s.system_open_now=String(s.is_active).trim().toUpperCase()==='TRUE'&&now>=bangkokDate(s.open_date).getTime()&&now<bangkokDate(s.close_date).getTime();applySettings(s,false)}}catch{}
 buildSparkles();initRegionSuggestions();setInterval(()=>{if(!document.hidden)updateCountdown()},1000);
 
 restorePending();poll();
